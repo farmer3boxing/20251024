@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Payment UI</title>
+    <style>
+      :root {
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-5: 20px;
+        --space-6: 24px;
+        --space-8: 32px;
+        --divider: #2b2f36; /* dark divider */
+        --text: #ffffff; /* light text */
+        --muted: #9aa4b2; /* muted on dark */
+        --green: #00c244; /* cash-like green */
+        --bg: #0b0c0f; /* card bg */
+        --bg-page: #0b0c0f; /* page bg */
+        --btn-gray: #e5e7eb; /* gray button bg */
+        --btn-gray-text: #111827; /* gray button text */
+        --nav-icon-size: 20px; /* bottom nav unified icon size */
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        background: var(--bg-page);
+        color: var(--text);
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        overflow-x: hidden; /* prevent horizontal scroll on mobile */
+      }
+
+      .container {
+        max-width: 480px;
+        margin: 0 auto;
+        min-height: 100vh;
+        background: var(--bg);
+      }
+      /* Make list page a full-screen sliding panel */
+      #listContent {
+        position: fixed;
+        inset: 0;
+        height: 100svh;
+        overflow: hidden;
+        background: var(--bg);
+        transform: translateY(100%);
+        transition: transform .35s ease;
+        z-index: 800;
+        display: none; /* hidden until animated in */
+        display: flex; /* becomes flex when shown */
+        flex-direction: column;
+      }
+      #listContent.active { transform: translateY(0); }
+      /* Only list scrolls */
+      #listContent .list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      #listContent .list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+      /* Top area */
+      .topbar {
+        position: relative;
+        padding: var(--space-3) var(--space-6) 1px;
+        border-bottom: 1px solid var(--divider);
+        min-height: 64px;
+      }
+      .amount {
+        position: absolute;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        font-size: 28px;
+        font-weight: 400;
+        letter-spacing: -0.5px;
+      }
+      .pay-btn {
+        position: absolute;
+        right: var(--space-6);
+        bottom: 10px;
+        transform: none;
+        background: var(--green);
+        color: var(--bg);
+        border: none;
+        border-radius: 9999px;
+        padding: 6px 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .pay-btn:active { transform: scale(0.98); }
+
+      /* Generic rows */
+      .row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+        padding: var(--space-4) var(--space-6);
+        border-bottom: 1px solid var(--divider);
+      }
+      /* Shift right-side content in second page rows 10px left (keep label fixed) */
+      #listContent .row > :not(.label-col) { transform: translateX(-10px); }
+      .label-col {
+        flex: 0 0 48px; /* align icons/labels vertically across rows */
+        width: 48px;
+        font-weight: 700;
+        color: var(--text);
+      }
+      .input-wrap { flex: 1; }
+      .input {
+        width: 100%;
+        border: none;
+        outline: none;
+        font-size: 16px;
+        padding: 10px 0;
+        background: var(--bg);
+        color: var(--text);
+      }
+      .input::placeholder { color: var(--muted); }
+
+      .info-text { font-size: 16px; color: var(--text); }
+      .secondary { color: var(--muted); }
+
+      .green-indicator {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: inset 0 -1px 0 rgba(0,0,0,.08);
+      }
+
+      .use-icon { width: 18px; height: 18px; display: block; }
+
+      .chevron { margin-left: auto; width: 18px; height: 18px; }
+
+      .section-title {
+        padding: var(--space-3) var(--space-6);
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      /* Suggested list */
+      .list { display: flex; flex-direction: column; }
+      .item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+        padding: var(--space-4) var(--space-6);
+        border-bottom: 1px solid var(--divider);
+      }
+      .empty {
+        padding: var(--space-4) var(--space-6);
+        color: var(--muted);
+        border-bottom: 1px solid var(--divider);
+      }
+      /* Hint area shown when typing in the To input */
+      .note-hint { padding: var(--space-4) var(--space-6); color: var(--text); text-align: center; }
+      .note-hint .l1 { font-weight: 700; margin-bottom: 4px; }
+      .note-hint .l2 { font-weight: 400; }
+      .list-loader { display: grid; place-items: center; }
+      #listLoader .spinner-scale { transform: scale(0.5); transform-origin: 50% 50%; }
+      /* Make loader and list fill remaining height under the header/rows/title */
+      #listContent #listLoader,
+      #listContent #accountList { flex: 1; height: auto !important; }
+
+      /* Loading overlay */
+      .loading-overlay {
+        position: fixed;
+        inset: 0;
+        background: var(--bg);
+        display: none; /* toggled to grid when active */
+        place-items: center;
+        z-index: 999;
+      }
+      .spinner {
+        position: relative;
+        width: 72px;
+        height: 72px;
+        animation: spin 1.2s linear infinite;
+      }
+      .spinner span {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 8px;
+        height: 8px;
+        margin: -4px 0 0 -4px; /* center the dot */
+        background: #ffffff;
+        border-radius: 50%;
+      }
+      /* 12 dots around a circle */
+      .spinner span:nth-child(1)  { transform: rotate(0deg)   translate(28px); }
+      .spinner span:nth-child(2)  { transform: rotate(30deg)  translate(28px); }
+      .spinner span:nth-child(3)  { transform: rotate(60deg)  translate(28px); }
+      .spinner span:nth-child(4)  { transform: rotate(90deg)  translate(28px); }
+      .spinner span:nth-child(5)  { transform: rotate(120deg) translate(28px); }
+      .spinner span:nth-child(6)  { transform: rotate(150deg) translate(28px); }
+      .spinner span:nth-child(7)  { transform: rotate(180deg) translate(28px); }
+      .spinner span:nth-child(8)  { transform: rotate(210deg) translate(28px); }
+      .spinner span:nth-child(9)  { transform: rotate(240deg) translate(28px); }
+      .spinner span:nth-child(10) { transform: rotate(270deg) translate(28px); }
+      .spinner span:nth-child(11) { transform: rotate(300deg) translate(28px); }
+      .spinner span:nth-child(12) { transform: rotate(330deg) translate(28px); }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      
+
+      /* Bottom result sheet */
+      .sheet {
+        position: fixed;
+        inset: 0;
+        background: var(--bg);
+        display: none; /* set to block then toggle active for animation */
+        transform: translateY(100%);
+        transition: transform .35s ease;
+        z-index: 1000;
+      }
+      .sheet.active { transform: translateY(0); }
+      .sheet-inner { padding: calc(var(--space-8) + var(--space-6)) var(--space-6) var(--space-6) calc(var(--space-8) + var(--space-6)); }
+      .close-btn {
+        appearance: none;
+        -webkit-appearance: none;
+        background: transparent;
+        border: none;
+        color: #ffffff;
+        font-size: 28px;
+        font-weight: 400;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .topbar .close-btn { position: absolute; left: var(--space-6); bottom: 10px; }
+      .big-check {
+        position: relative;
+        width: 48px;
+        height: 48px;
+        margin-top: var(--space-4);
+        background: var(--green);
+        border-radius: 50%;
+      }
+      .big-check::after {
+        content: "";
+        position: absolute;
+        left: 14px;
+        top: 10px;
+        width: 14px;
+        height: 22px;
+        border-right: 3px solid var(--bg);
+        border-bottom: 3px solid var(--bg);
+        transform: rotate(45deg);
+        border-radius: 1px;
+      }
+      .result-text { margin-top: var(--space-4); color: var(--text); }
+      .result-text .line1 { font-size: 22px; font-weight: 600; }
+      .result-text .line2 { font-size: 24px; font-weight: 700; }
+
+      .done-btn {
+        position: absolute;
+        left: 50%;
+        bottom: var(--space-6);
+        transform: translateX(-50%);
+        background: var(--green);
+        color: var(--bg);
+        border: none;
+        border-radius: 9999px;
+        padding: 12px 32px; /* 恢复更高的按钮高度 */
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 280px; /* 更长一点 */
+      }
+
+      /* Compose screen (new page) */
+      .compose {
+        display: flex; /* homepage visible by default */
+        max-width: 480px;
+        margin: 0 auto;
+        min-height: 100vh;
+        height: 100svh; /* mobile friendly viewport height */
+        background: var(--bg);
+        position: relative;
+        display: flex;
+        flex-direction: column;
+      }
+      .compose-main { flex: 1; overflow: auto; padding-bottom: calc(92px + env(safe-area-inset-bottom)); overscroll-behavior-x: none; overflow-x: hidden; }
+      .compose-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-6);
+      }
+      .qr-icon svg { width: 24px; height: 24px; fill: #ffffff; }
+      .avatar-sm {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #ffffff;
+        color: var(--bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .compose-amount {
+        padding: calc(var(--space-8) + 24px + 40px) var(--space-6) var(--space-4);
+        display: flex;
+        justify-content: center; /* center the amount field */
+      }
+      .amount-field {
+        display: flex;
+        align-items: baseline;
+        gap: 0; /* $ 紧挨输入框 */
+        border-bottom: none; /* remove divider between input and keypad */
+        padding-bottom: var(--space-4);
+        justify-content: center;
+      }
+      .compose-dollar { font-size: 60px; font-weight: 700; color: var(--text); }
+      #composeInput {
+        flex: 0 0 auto; /* don't stretch, keep $ visible */
+        width: 7ch; /* 缩小输入框宽度 */
+        min-width: 3ch;
+        background: transparent;
+        border: none;
+        outline: none;
+        color: var(--text);
+        font-size: 60px;
+        font-weight: 700;
+        text-align: center;
+      }
+      /* Use a custom display for animated characters; visually hide the real input */
+      #composeInput { position: absolute; left: -9999px; width: 0; height: 0; opacity: 0; pointer-events: none; }
+      #composeDisplay { font-size: 60px; font-weight: 700; color: var(--text); display: inline-flex; gap: 0; align-items: baseline; justify-content: center; letter-spacing: 0; }
+      #composeDisplay .char { display: inline-block; transform-origin: 50% 80%; }
+      #composeDisplay .char-in { animation: charGrow .18s ease; }
+      #composeDisplay .char-out { animation: charShrink .18s ease forwards; }
+      @keyframes charGrow { 0% { transform: scale(0.4); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+      @keyframes charShrink { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(0.1); opacity: 0; } }
+      .numpad {
+        padding: var(--space-6);
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        column-gap: 20px; /* widen left-right spacing */
+        row-gap: var(--space-2); /* keep top-bottom spacing */
+        width: 75%; /* shrink keypad width by 25% */
+        margin-left: auto;
+        margin-right: auto;
+        margin-top: calc(var(--space-6) + 110px); /* move keypad up by 40px */
+        margin-bottom: var(--space-2); /* sit close to bottom buttons */
+        justify-items: stretch; /* keys fill their cells and touch */
+      }
+      .numpad button {
+        height: 48px; /* compact */
+        border-radius: 12px;
+        border: none; /* no border */
+        background: var(--bg); /* same as page background */
+        color: #ffffff;
+        font-size: 16px; /* compact */
+        font-weight: 700; /* bold text */
+        cursor: pointer;
+        width: 100%; /* fill cell so neighbors touch */
+      }
+      /* remove highlight on press; use custom pop animation instead */
+      .numpad button:active { background: var(--bg); }
+      .numpad button.pop { animation: keyPop .16s ease; }
+      @keyframes keyPop { 0% { transform: scale(1); } 50% { transform: scale(1.65); } 100% { transform: scale(1); } }
+      .compose-actions {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: calc(var(--space-6) + env(safe-area-inset-bottom) + 60px);
+        width: 100%;
+        max-width: 480px; /* match container width */
+        display: flex; /* visible on homepage; will be hidden when sheets open */
+        gap: var(--space-4);
+        padding: 0 var(--space-6);
+      }
+      .compose-actions .request,
+      .compose-actions .pay {
+        flex: 1;
+        border: none;
+        background: #2b2f36; /* deep gray */
+        color: #ffffff;
+        border-radius: 9999px;
+        padding: 12px 16px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      /* Bottom icons bar */
+      .bottom-icons {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 0;
+        width: 100%;
+        max-width: 480px;
+        padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+        display: none; /* only show on homepage (compose) */
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        align-items: center;
+        justify-items: center;
+        color: #ffffff;
+        z-index: 200; /* below sheets (1000) and overlay (999) */
+        pointer-events: none; /* decorative only */
+      }
+      .sheet-inner.list-inner { padding: 0; }
+      .bicon { position: relative; width: 100%; height: 28px; display: flex; align-items: center; justify-content: center; }
+      .bicon svg { width: var(--nav-icon-size); height: var(--nav-icon-size); fill: none; stroke: #ffffff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .bicon .amount { font-weight: 800; font-size: var(--nav-icon-size); line-height: var(--nav-icon-size); }
+      .bicon.dollar { font-weight: 800; font-size: var(--nav-icon-size); line-height: var(--nav-icon-size); }
+      /* Slightly shrink only the first amount ($61.2K) on the homepage bottom bar */
+      .bottom-icons .bicon:first-child .amount { font-size: 16px; line-height: 18px; position: relative; top: 0.1px;  }
+      /* .badge { position: absolute; top: -2px; right: -2px; width: 14px; height: 14px; background: #ef4444; color: #fff; border-radius: 9999px; border: 2px solid var(--bg); font-size: 9px; font-weight: 800; display: grid; place-items: center; } */
+      .avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(0, 194, 68, 0.15);
+        color: #0b0c0f;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+      }
+      .name { font-weight: 700; }
+      .meta { font-size: 13px; color: var(--muted); }
+      .grow { flex: 1; }
+
+      /* Custom checkbox (rounded square) */
+      .check {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #ffffff; /* white border */
+        border-radius: 6px;
+        background: var(--bg); /* 与页面背景一致 */
+        display: grid;
+        place-content: center;
+        cursor: pointer;
+      }
+      .check:checked { border-color: #ffffff; background: var(--bg); }
+      .check:checked::after {
+        content: "";
+        width: 6px;
+        height: 10px;
+        border-right: 2px solid #ffffff;
+        border-bottom: 2px solid #ffffff;
+        transform: rotate(45deg);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="compose" id="compose">
+      <div class="compose-header">
+        <div class="qr-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M3 3h6v6H3V3zm2 2v2h2V5H5zm8-2h6v6h-6V3zm2 2v2h2V5h-2zM3 13h6v6H3v-6zm2 2v2h2v-2H5zm10-2h2v2h-2v-2zm-2 2h2v2h-2v-2zm4 0h2v2h-2v-2zm-2 2h2v2h-2v-2zm4 0h2v2h-2v-2z"/>
+          </svg>
+        </div>
+        <div class="avatar-sm" aria-hidden="true">U</div>
+      </div>
+      <div class="compose-main">
+        <div class="compose-amount">
+          <div class="amount-field">
+            <input id="composeInput" type="text" value="$500" inputmode="decimal" aria-label="Amount" />
+            <div id="composeDisplay" aria-label="Amount" role="text"></div>
+          </div>
+        </div>
+        <div class="numpad" id="numpad">
+          <button data-key="1">1</button>
+          <button data-key="2">2</button>
+          <button data-key="3">3</button>
+          <button data-key="4">4</button>
+          <button data-key="5">5</button>
+          <button data-key="6">6</button>
+          <button data-key="7">7</button>
+          <button data-key="8">8</button>
+          <button data-key="9">9</button>
+          <button data-key=".">.</button>
+          <button data-key="0">0</button>
+          <button data-key="back">&lt;</button>
+        </div>
+      </div>
+      <div class="compose-actions">
+        <button class="request" type="button">Request</button>
+        <button class="pay" type="button" id="composePayBtn">Pay</button>
+      </div>
+    </div>
+
+    <div class="container" id="listContent" style="display:none;">
+      <!-- 第一行：居中 $500，右侧 Pay 按钮，灰线分割 -->
+      <div class="topbar">
+        <button class="close-btn" id="closeListHeader" aria-label="Close">×</button>
+        <div class="amount">$500</div>
+        <button class="pay-btn" id="listPayBtn">Pay</button>
+      </div>
+
+      <!-- 第二行：To + 搜索框，灰线分割 -->
+      <div class="row">
+        <div class="label-col">To</div>
+        <div class="input-wrap">
+          <input class="input" id="toInput" type="text" placeholder="Name, $Cashtag, Phone, Email" />
+        </div>
+      </div>
+
+      <!-- 第三行：For + 输入框，灰线分割 -->
+      <div class="row">
+        <div class="label-col">For</div>
+        <div class="input-wrap">
+          <input class="input" id="forInput" type="text" placeholder="Note (requires)" />
+        </div>
+      </div>
+
+      <!-- 第四行：Use + 绿色图标 + Cash balance + 向下箭头，灰线分割 -->
+      <div class="row">
+        <div class="label-col">Use</div>
+        <img class="use-icon" src="img/$.jpg" alt="$" />
+        <div class="info-text">Cash balance: $10,000.00</div>
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+
+      <!-- 第五行：Suggested 标题 + 列表 -->
+      <div class="section-title" id="suggestedTitle">Suggested</div>
+      <div class="note-hint" id="noteHint" style="display:none;">
+        <div class="l1">We couidn't find any matches</div>
+        <div class="l2">Try entering a phone number, email or $cashtag</div>
+      </div>
+      <div class="list-loader" id="listLoader" style="display:none; height: calc(100svh - 64px - 48px - 48px);">
+        <div class="spinner-scale">
+          <div class="spinner" role="status" aria-label="Loading">
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+      </div>
+      <div class="list" id="accountList" style="height: calc(100svh - 64px - 48px - 48px);"></div>
+    </div>
+    <div class="loading-overlay" id="loadingOverlay" aria-hidden="true">
+      <div class="spinner" role="status" aria-label="Loading">
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="sheet" id="resultSheet" aria-hidden="true">
+      <div class="sheet-inner">
+        <button class="close-btn" id="closeSheet" aria-label="Close">×</button>
+        <div class="big-check" aria-hidden="true"></div>
+        <div class="result-text">
+          <div class="line1">You sent $500 to</div>
+          <div class="line2" id="sentTarget">Someone</div>
+        </div>
+          <button class="done-btn" id="doneBtn">Done</button>
+      </div>
+    </div>
+    
+    <!-- List as bottom sheet (from homepage) -->
+    <div class="sheet" id="listSheet" aria-hidden="true">
+      <div class="sheet-inner list-inner">
+        <!-- reuse the existing list content by cloning when opening -->
+        <div class="section-title" style="padding-top: 16px;">Suggested</div>
+        <div class="list" id="sheetList"></div>
+      </div>
+    </div>
+    
+
+    <!-- Bottom icon bar (homepage only) -->
+    <div class="bottom-icons" id="bottomNav" aria-hidden="true" style="display:grid;">
+      <div class="bicon"><span class="amount" style="font-weight:800;">$61.2K</span></div>
+      <div class="bicon">
+        <!-- wallet/cash card icon -->
+        <svg viewBox="0 0 24 24">
+          <rect x="3" y="6" width="18" height="12" rx="2" ry="2"></rect>
+          <circle cx="16" cy="12" r="2"></circle>
+        </svg>
+      </div>
+      <div class="bicon dollar">$</div>
+      <div class="bicon">
+        <!-- search icon -->
+        <svg viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="7"></circle>
+          <line x1="16.65" y1="16.65" x2="21" y2="21"></line>
+        </svg>
+      </div>
+      <div class="bicon">
+        <!-- clock/recents icon with badge -->
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9"></circle>
+          <polyline points="12 7 12 12 16 14"></polyline>
+        </svg>
+        <span class="badge"></span>
+      </div>
+    </div>
+    <script>
+      (function() {
+        // (reverted) use CSS spinner only
+        const accounts = [
+          { id: 'a1', name: 'Alice Johnson', cashtag: '$alice', phone: '555-0134', email: 'alice@example.com' },
+          { id: 'a2', name: 'Benson Lee', cashtag: '$benson', phone: '555-0177', email: 'benson@example.com' },
+          { id: 'a3', name: 'Carol Smith', cashtag: '$carol', phone: '555-0189', email: 'carol@smith.io' },
+          { id: 'a4', name: 'David Park', cashtag: '$david', phone: '555-0192', email: 'david@domain.com' },
+          { id: 'a5', name: 'Emma Zhang', cashtag: '$emma', phone: '555-0111', email: 'emma@zhang.dev' },
+          { id: 'a6', name: 'Frank Miller', cashtag: '$frankm', phone: '555-0142', email: 'frank.m@example.com' },
+          { id: 'a7', name: 'Grace Liu', cashtag: '$graceliu', phone: '555-0155', email: 'grace.liu@mail.com' },
+          { id: 'a8', name: 'Henry Chen', cashtag: '$henryc', phone: '555-0168', email: 'henryc@post.com' },
+          { id: 'a9', name: 'Ivy Nguyen', cashtag: '$ivy', phone: '555-0123', email: 'ivy@nguyen.co' },
+          { id: 'a10', name: 'Jack Brown', cashtag: '$jackb', phone: '555-0198', email: 'jack.brown@example.com' },
+          { id: 'a11', name: 'Kelly Rivera', cashtag: '$kellyr', phone: '555-0105', email: 'kellyr@domain.org' },
+          { id: 'a12', name: 'Leo Martínez', cashtag: '$leo', phone: '555-0181', email: 'leo@mxmail.mx' },
+          { id: 'a13', name: 'Mia Wilson', cashtag: '$miaw', phone: '555-0170', email: 'mia.wilson@mail.com' },
+          { id: 'a14', name: 'Noah Patel', cashtag: '$noahp', phone: '555-0195', email: 'noah.patel@example.net' },
+          { id: 'a15', name: 'Olivia King', cashtag: '$oliviak', phone: '555-0138', email: 'olivia.k@king.co' },
+          { id: 'a16', name: 'Peter Zhang', cashtag: '$peterz', phone: '555-0160', email: 'peter.zhang@work.cn' },
+          { id: 'a17', name: 'Quinn Davis', cashtag: '$quinnd', phone: '555-0179', email: 'quinn.davis@studio.io' },
+          { id: 'a18', name: 'Ryan Taylor', cashtag: '$ryant', phone: '555-0184', email: 'ryan.taylor@example.com' },
+          { id: 'a19', name: 'Sophia Li', cashtag: '$sophiali', phone: '555-0199', email: 'sophia.li@company.com' },
+          { id: 'a20', name: 'Thomas Müller', cashtag: '$thomasm', phone: '555-0129', email: 'thomas.m@example.de' },
+        ];
+
+        const selected = new Set();
+        const listEl = document.getElementById('accountList');
+        const inputEl = document.getElementById('toInput');
+        const noteHint = document.getElementById('noteHint');
+        const suggestedTitle = document.getElementById('suggestedTitle');
+        const listLoader = document.getElementById('listLoader');
+        let searchTimeout;
+
+        function digitsOnly(s) { return (s || '').replace(/\D+/g, ''); }
+
+        function matchScore(acc, qRaw) {
+          if (!qRaw) return 0;
+          const q = qRaw.toLowerCase();
+          const qDigits = digitsOnly(qRaw);
+          const name = (acc.name || '').toLowerCase();
+          const cashtag = (acc.cashtag || '').toLowerCase();
+          const email = (acc.email || '').toLowerCase();
+          const phone = digitsOnly(acc.phone || '');
+
+          let s = 0;
+          if (cashtag === q) s += 1000;
+          if (name === q) s += 800;
+          if (cashtag.startsWith(q)) s += 500;
+          if (name.startsWith(q)) s += 400;
+          if (name.split(/\s+/).some(w => w.startsWith(q))) s += 350;
+          if (qDigits && phone.startsWith(qDigits)) s += 300;
+          if (email.startsWith(q)) s += 250;
+          if (cashtag.includes(q)) s += 200;
+          if (name.includes(q)) s += 150;
+          if (qDigits && phone.includes(qDigits)) s += 120;
+          if (email.includes(q)) s += 100;
+          s -= Math.min(name.length, 50) * 0.01;
+          return s;
+        }
+
+        function render(items) {
+          listEl.innerHTML = '';
+          for (const acc of items) {
+            const item = document.createElement('div');
+            item.className = 'item';
+
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            avatar.textContent = (acc.name || '?').trim().charAt(0).toUpperCase();
+            // deterministic varied background per account
+            const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#06B6D4', '#F97316', '#84CC16'];
+            let hash = 0; const key = (acc.id || acc.name || acc.cashtag || 'x');
+            for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+            avatar.style.background = colors[Math.abs(hash) % colors.length];
+
+            const infoWrap = document.createElement('div');
+            const nameEl = document.createElement('div');
+            nameEl.className = 'name';
+            nameEl.textContent = acc.name;
+            const metaEl = document.createElement('div');
+            metaEl.className = 'meta';
+            const metaBits = [acc.cashtag, acc.phone, acc.email].filter(Boolean);
+            metaEl.textContent = metaBits.join(' • ');
+
+            infoWrap.appendChild(nameEl);
+            infoWrap.appendChild(metaEl);
+
+            const grow = document.createElement('div');
+            grow.className = 'grow';
+
+            const check = document.createElement('input');
+            check.type = 'checkbox';
+            check.className = 'check';
+            check.checked = selected.has(acc.id);
+            check.addEventListener('change', () => {
+              if (check.checked) {
+                // uncheck all others to enforce single selection
+                const all = listEl.querySelectorAll('.check');
+                all.forEach(c => { if (c !== check) c.checked = false; });
+                // keep only current id in selected set
+                selected.clear();
+                selected.add(acc.id);
+              } else {
+                selected.delete(acc.id);
+              }
+            });
+
+            item.appendChild(avatar);
+            item.appendChild(infoWrap);
+            item.appendChild(grow);
+            item.appendChild(check);
+            // 点击账号不再直接跳转，由右上角 Pay 发起
+            item.addEventListener('click', (ev) => {
+              if (ev.target.closest('.check')) return;
+            });
+            listEl.appendChild(item);
+          }
+        }
+
+        function randomSample(arr, n) {
+          const copy = arr.slice();
+          for (let i = copy.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = copy[i];
+            copy[i] = copy[j];
+            copy[j] = tmp;
+          }
+          return copy.slice(0, Math.max(0, Math.min(n, copy.length)));
+        }
+
+        // Fallback fuzzy: Levenshtein distance
+        function editDistance(a, b) {
+          a = (a || '').toLowerCase();
+          b = (b || '').toLowerCase();
+          const m = a.length, n = b.length;
+          if (m === 0) return n; if (n === 0) return m;
+          const dp = new Array(n + 1);
+          for (let j = 0; j <= n; j++) dp[j] = j;
+          for (let i = 1; i <= m; i++) {
+            let prev = dp[0];
+            dp[0] = i;
+            for (let j = 1; j <= n; j++) {
+              const temp = dp[j];
+              if (a[i - 1] === b[j - 1]) {
+                dp[j] = prev;
+              } else {
+                dp[j] = Math.min(prev + 1, dp[j] + 1, dp[j - 1] + 1);
+              }
+              prev = temp;
+            }
+          }
+          return dp[n];
+        }
+
+        function computeRanked(q) {
+          const primary = accounts
+            .map(a => ({ a, s: matchScore(a, q) }))
+            .filter(x => x.s > 0)
+            .sort((x, y) => y.s - x.s || x.a.cashtag.localeCompare(y.a.cashtag))
+            .map(x => x.a);
+          if (primary.length > 0) return primary;
+          const scored = accounts.map(a => {
+            const name = (a.name || '');
+            const cashtag = (a.cashtag || '');
+            const email = (a.email || '');
+            const d = Math.min(
+              editDistance(name, q),
+              editDistance(cashtag, q),
+              editDistance(email, q)
+            );
+            return { a, d };
+          });
+          return scored.sort((x, y) => x.d - y.d || x.a.cashtag.localeCompare(y.a.cashtag)).map(x => x.a);
+        }
+
+        function handle() {
+          const q = (inputEl.value || '').trim();
+          const overlay = document.getElementById('loadingOverlay');
+          if (!q) {
+            if (noteHint) noteHint.style.display = 'none';
+            if (suggestedTitle) suggestedTitle.style.display = 'block';
+            if (listLoader) listLoader.style.display = 'none';
+            if (listEl) listEl.style.display = 'block';
+            if (overlay) overlay.style.display = 'none';
+            const a = accounts.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              const t = a[i]; a[i] = a[j]; a[j] = t;
+            }
+            render(a);
+            return;
+          }
+          if (q.length < 2) {
+            if (searchTimeout) { clearTimeout(searchTimeout); searchTimeout = null; }
+            if (overlay) overlay.style.display = 'none';
+            if (listLoader) listLoader.style.display = 'none';
+            if (noteHint) noteHint.style.display = 'block';
+            if (suggestedTitle) suggestedTitle.style.display = 'none';
+            if (listEl) listEl.style.display = 'none';
+            return;
+          }
+          // length >= 2: loader then results
+          if (suggestedTitle) suggestedTitle.style.display = 'none';
+          if (listEl) listEl.style.display = 'none';
+          if (noteHint) noteHint.style.display = 'none';
+          if (searchTimeout) { clearTimeout(searchTimeout); }
+          if (overlay) overlay.style.display = 'none';
+          if (listLoader) listLoader.style.display = 'grid';
+          const startedFor = q;
+          searchTimeout = setTimeout(() => {
+            const latest = (inputEl.value || '').trim();
+            if (latest.length < 2) {
+              if (overlay) overlay.style.display = 'none';
+              if (listLoader) listLoader.style.display = 'none';
+              return;
+            }
+            const ranked = computeRanked(latest);
+            if (overlay) overlay.style.display = 'none';
+            if (listLoader) listLoader.style.display = 'none';
+            if (ranked && ranked.length) {
+              if (listEl) { listEl.style.display = 'flex'; render(ranked); }
+              if (noteHint) noteHint.style.display = 'none';
+            } else {
+              if (listEl) listEl.style.display = 'none';
+              if (noteHint) noteHint.style.display = 'block';
+            }
+          }, 700);
+        }
+
+        function debounce(fn, wait) {
+          let t;
+          return function() {
+            const args = arguments;
+            clearTimeout(t);
+            t = setTimeout(function() { fn.apply(null, args); }, wait);
+          };
+        }
+
+        inputEl.addEventListener('input', debounce(handle, 150));
+        // initial render with shuffled order
+        (function(){
+          const a = accounts.slice();
+          for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const t = a[i]; a[i] = a[j]; a[j] = t;
+          }
+          render(a);
+        })();
+
+        function startFlow(targetName) {
+          const overlay = document.getElementById('loadingOverlay');
+          const sheet = document.getElementById('resultSheet');
+          const sentTarget = document.getElementById('sentTarget');
+          overlay.style.display = 'grid';
+          sentTarget.textContent = targetName;
+          setTimeout(() => {
+            overlay.style.display = 'none';
+            sheet.style.display = 'block';
+            // force reflow to allow transition
+            void sheet.offsetWidth;
+            sheet.classList.add('active');
+          }, 1300);
+        }
+
+        document.getElementById('closeSheet').addEventListener('click', () => {
+          goToCompose();
+        });
+
+        document.getElementById('doneBtn').addEventListener('click', () => {
+          goToCompose();
+        });
+
+        function goToCompose() {
+          const sheet = document.getElementById('resultSheet');
+          // Immediately switch the underlying view to homepage to avoid flashing the list page
+          document.getElementById('compose').style.display = 'flex';
+          document.querySelector('.container').style.display = 'none';
+          const actions = document.querySelector('.compose-actions');
+          if (actions) actions.style.display = 'flex';
+          const bottomNav = document.getElementById('bottomNav');
+          if (bottomNav) bottomNav.style.display = 'grid';
+          // Then close the result sheet with a quick transition
+          sheet.classList.remove('active');
+          setTimeout(() => { sheet.style.display = 'none'; }, 150);
+        }
+      })();
+    </script>
+    <script>
+      // Compose screen logic
+      (function() {
+        const compose = document.getElementById('compose');
+        const mainContainer = document.querySelector('.container');
+        const amountInput = document.getElementById('composeInput');
+        const numpad = document.getElementById('numpad');
+        const payBtn = document.getElementById('composePayBtn');
+        const display = document.getElementById('composeDisplay');
+        const listContent = document.getElementById('listContent');
+
+        function renderDisplay(val) {
+          if (!display) return;
+          display.innerHTML = '';
+          const s = String(val || '');
+          for (let i = 0; i < s.length; i++) {
+            const ch = s[i];
+            const span = document.createElement('span');
+            span.className = 'char' + (ch === '$' ? ' dollar' : (ch === '.' ? ' dot' : ' num'));
+            span.textContent = ch;
+            display.appendChild(span);
+          }
+        }
+
+        function lastDisplayChar() {
+          if (!display) return null;
+          const nodes = display.querySelectorAll('.char:not(.dollar)');
+          return nodes[nodes.length - 1] || null;
+        }
+
+        function pop(el) {
+          if (!el) return;
+          el.classList.remove('pop');
+          void el.offsetWidth;
+          el.classList.add('pop');
+        }
+
+        // initial render for the visible display
+        renderDisplay(amountInput.value);
+
+        function sanitize(val) {
+          // allow optional leading $, keep digits and a single dot
+          val = (val || '').replace(/[^$0-9.]/g, '');
+          // keep only first $ at start
+          val = val.replace(/\$/g, '');
+          val = '$' + val;
+          // ensure single dot after possible leading $
+          const withoutDollar = val.slice(1);
+          const firstDot = withoutDollar.indexOf('.');
+          let digits = withoutDollar;
+          if (firstDot !== -1) {
+            digits = withoutDollar.slice(0, firstDot + 1) + withoutDollar.slice(firstDot + 1).replace(/\./g, '');
+          }
+          return '$' + digits;
+        }
+
+        numpad.addEventListener('click', (e) => {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+          const key = btn.getAttribute('data-key');
+          if (!key) return;
+          pop(btn);
+
+          if (key === 'back') {
+            const prev = amountInput.value || '$';
+            const outgoing = lastDisplayChar();
+            const next = sanitize(prev.slice(0, Math.max(1, prev.length - 1)));
+            amountInput.value = next;
+            if (outgoing) {
+              outgoing.classList.add('char-out');
+              outgoing.addEventListener('animationend', () => { renderDisplay(next); }, { once: true });
+            } else {
+              renderDisplay(next);
+            }
+            return;
+          }
+
+          const prev = amountInput.value || '$';
+          const candidate = sanitize(prev + key);
+          if (candidate !== prev) {
+            amountInput.value = candidate;
+            renderDisplay(candidate);
+            const nodes = display.querySelectorAll('.char:not(.dollar)');
+            const last = nodes[nodes.length - 1];
+            if (last) last.classList.add('char-in');
+          }
+        });
+
+        amountInput.addEventListener('input', () => {
+          amountInput.value = sanitize(amountInput.value);
+          renderDisplay(amountInput.value);
+        });
+
+        payBtn.addEventListener('click', () => {
+          // 将列表页顶部金额更新为输入金额
+          const topAmount = document.querySelector('#listContent .topbar .amount');
+          const cleaned = sanitize(amountInput.value || '$0');
+          if (topAmount) topAmount.textContent = cleaned;
+          // 打开列表页：从底部向上滑入
+          const actions = document.querySelector('.compose-actions');
+          if (actions) actions.style.display = 'none';
+          const bottomNav = document.getElementById('bottomNav');
+          if (bottomNav) bottomNav.style.display = 'none';
+          compose.style.display = 'none';
+          if (listContent) {
+            listContent.style.display = 'block';
+            void listContent.offsetWidth; // reflow to enable transition
+            listContent.classList.add('active');
+          }
+        });
+
+        // Header close button on the list page (full page), go back home
+        const closeListHeader = document.getElementById('closeListHeader');
+        if (closeListHeader) closeListHeader.addEventListener('click', () => {
+          // 列表页向下滑出后返回主页
+          if (listContent) {
+            listContent.classList.remove('active');
+            listContent.addEventListener('transitionend', () => {
+              listContent.style.display = 'none';
+            }, { once: true });
+          }
+          compose.style.display = 'flex';
+          const actions = document.querySelector('.compose-actions');
+          if (actions) actions.style.display = 'flex';
+          const bottomNav = document.getElementById('bottomNav');
+          if (bottomNav) bottomNav.style.display = 'grid';
+        });
+
+        // List page Pay button triggers the startFlow (after a quick selection check)
+        const listPayBtn = document.getElementById('listPayBtn');
+        if (listPayBtn) listPayBtn.addEventListener('click', () => {
+          // 计算需要扣减的金额（取列表页顶部金额）并更新 Use 的 Cash balance
+          const amountEl = document.querySelector('#listContent .topbar .amount');
+          const useRow = Array.from(document.querySelectorAll('#listContent .row')).find(r => (r.querySelector('.label-col')||{}).textContent?.trim() === 'Use');
+          function parseCents(str){
+            const cleaned = (str||'').replace(/[^0-9.]/g,'');
+            if (!cleaned) return 0;
+            const [d,c='0'] = cleaned.split('.');
+            const cents = parseInt((c+"00").slice(0,2),10);
+            return parseInt(d||'0',10)*100 + (isNaN(cents)?0:cents);
+          }
+          function formatCents(cs){
+            const dollars = Math.max(0, Math.floor(cs/100));
+            const cents = Math.max(0, cs%100);
+            const dStr = dollars.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            const cStr = String(cents).padStart(2,'0');
+            return `$${dStr}.${cStr}`;
+          }
+          if (amountEl && useRow) {
+            const payCents = parseCents(amountEl.textContent);
+            const infoEl = useRow.querySelector('.info-text');
+            if (infoEl) {
+              const currentCents = parseCents(infoEl.textContent);
+              const nextCents = Math.max(0, currentCents - payCents);
+              infoEl.textContent = `Cash balance: ${formatCents(nextCents)}`;
+            }
+          }
+          // prefer the first checked account, otherwise first of the current list
+          const checked = document.querySelector('#listContent .list .check:checked');
+          let name = 'Someone';
+          if (checked) {
+            const item = checked.closest('.item');
+            const nm = item && item.querySelector('.name');
+            name = (nm && nm.textContent) || name;
+          } else {
+            const firstItem = document.querySelector('#listContent .list .item');
+            const nm = firstItem && firstItem.querySelector('.name');
+            name = (nm && nm.textContent) || name;
+          }
+          // show loading then success sheet
+          const overlay = document.getElementById('loadingOverlay');
+          const sheet = document.getElementById('resultSheet');
+          const sentTarget = document.getElementById('sentTarget');
+          overlay.style.display = 'grid';
+          sentTarget.textContent = name;
+          setTimeout(() => {
+            overlay.style.display = 'none';
+            sheet.style.display = 'block';
+            void sheet.offsetWidth;
+            sheet.classList.add('active');
+          }, 1300);
+        });
+      })();
+    </script>
+  </body>
+  </html>
+
+
