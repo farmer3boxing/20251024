@@ -160,7 +160,7 @@
       #listLoader .spinner-scale { transform: scale(0.5); transform-origin: 50% 50%; }
       /* Make loader and list fill remaining height under the header/rows/title */
       #listContent #listLoader,
-      #listContent #accountList { flex: 1; height: auto !important; }
+      #listContent #accountList { flex: 1; height: auto !important; min-height: 0; }
 
       /* Loading overlay */
       .loading-overlay {
@@ -427,6 +427,7 @@
         justify-content: center;
         font-weight: 800;
       }
+      .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
       .name { font-weight: 700; }
       .meta { font-size: 13px; color: var(--muted); }
       .grow { flex: 1; }
@@ -521,7 +522,7 @@
       <div class="row">
         <div class="label-col">Use</div>
         <img class="use-icon" src="img/$.jpg" alt="$" />
-        <div class="info-text">Cash balance: $10,000.00</div>
+        <div class="info-text">Cash balance: $94,751.18</div>
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>
@@ -530,7 +531,7 @@
       <!-- 第五行：Suggested 标题 + 列表 -->
       <div class="section-title" id="suggestedTitle">Suggested</div>
       <div class="note-hint" id="noteHint" style="display:none;">
-        <div class="l1">We couidn't find any matches</div>
+        <div class="l1">We couldn't find any matches</div>
         <div class="l2">Try entering a phone number, email or $cashtag</div>
       </div>
       <div class="list-loader" id="listLoader" style="display:none; height: calc(100svh - 64px - 48px - 48px);">
@@ -661,18 +662,38 @@
 
         function render(items) {
           listEl.innerHTML = '';
-          for (const acc of items) {
+          // randomize 7 indices for avatars once per render; only first 7 accounts get photos
+          const photoSlots = Array.from({length: items.length}, (_, i) => i)
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 7);
+          const imgOrder = [1,2,3,4,5,6,7].sort(() => Math.random() - 0.5);
+          let photoPtr = 0;
+          for (let idx = 0; idx < items.length; idx++) {
+            const acc = items[idx];
             const item = document.createElement('div');
             item.className = 'item';
 
             const avatar = document.createElement('div');
             avatar.className = 'avatar';
-            avatar.textContent = (acc.name || '?').trim().charAt(0).toUpperCase();
-            // deterministic varied background per account
-            const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#06B6D4', '#F97316', '#84CC16'];
-            let hash = 0; const key = (acc.id || acc.name || acc.cashtag || 'x');
-            for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
-            avatar.style.background = colors[Math.abs(hash) % colors.length];
+            if (photoSlots.includes(idx) && photoPtr < imgOrder.length) {
+              const img = document.createElement('img');
+              const nextIdx = imgOrder[photoPtr++];
+              img.src = `img/tx${nextIdx}.png`;
+              img.alt = acc.name || 'avatar';
+              img.addEventListener('error', () => {
+                avatar.innerHTML = '';
+                const letter = document.createElement('div');
+                letter.textContent = (acc.name || '?').trim().charAt(0).toUpperCase();
+                avatar.appendChild(letter);
+              }, { once: true });
+              avatar.appendChild(img);
+            } else {
+              avatar.textContent = (acc.name || '?').trim().charAt(0).toUpperCase();
+              const colors = ['#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#06B6D4', '#F97316', '#84CC16'];
+              let hash = 0; const key = (acc.id || acc.name || acc.cashtag || 'x');
+              for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+              avatar.style.background = colors[Math.abs(hash) % colors.length];
+            }
 
             const infoWrap = document.createElement('div');
             const nameEl = document.createElement('div');
@@ -880,6 +901,13 @@
           if (actions) actions.style.display = 'flex';
           const bottomNav = document.getElementById('bottomNav');
           if (bottomNav) bottomNav.style.display = 'grid';
+          // Clear second page inputs after flow completes
+          const toInput = document.getElementById('toInput');
+          if (toInput) toInput.value = '';
+          const forInput = document.getElementById('forInput');
+          if (forInput) forInput.value = '';
+          // Reset list/hint state
+          if (typeof handle === 'function') handle();
           // Then close the result sheet with a quick transition
           sheet.classList.remove('active');
           setTimeout(() => { sheet.style.display = 'none'; }, 150);
@@ -991,7 +1019,7 @@
           if (bottomNav) bottomNav.style.display = 'none';
           compose.style.display = 'none';
           if (listContent) {
-            listContent.style.display = 'block';
+            listContent.style.display = 'flex';
             void listContent.offsetWidth; // reflow to enable transition
             listContent.classList.add('active');
           }
@@ -1054,6 +1082,16 @@
             const firstItem = document.querySelector('#listContent .list .item');
             const nm = firstItem && firstItem.querySelector('.name');
             name = (nm && nm.textContent) || name;
+          }
+          // If user typed in To input, prefer that exact value
+          const toInput = document.getElementById('toInput');
+          const typedName = ((toInput && toInput.value) || '').trim();
+          if (typedName) name = typedName;
+          // Update result sheet with dynamic amount and name
+          const line1 = document.querySelector('#resultSheet .result-text .line1');
+          if (line1) {
+            const amt = (amountEl && amountEl.textContent) || '';
+            line1.textContent = `You sent ${amt} to`;
           }
           // show loading then success sheet
           const overlay = document.getElementById('loadingOverlay');
